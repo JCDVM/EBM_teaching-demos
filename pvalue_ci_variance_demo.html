@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Outcome variability, p-values, and confidence intervals</title>
+<style>
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  p.sub { color: #666; font-size: 14px; margin-top: 0; margin-bottom: 24px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 20px; align-items: center; margin-bottom: 18px; }
+  .control { display: flex; align-items: center; gap: 8px; }
+  .control label { font-size: 13px; color: #555; }
+  .control span { font-size: 13px; font-weight: 600; min-width: 26px; }
+  button { font-size: 13px; padding: 7px 14px; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  button:hover { background: #f5f5f5; }
+  .theory { background: #eef4fb; border-radius: 8px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; color: #333; display: flex; gap: 24px; flex-wrap: wrap; }
+  .theory b { font-weight: 600; }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat-card { flex: 1; min-width: 180px; background: #f7f7f5; border-radius: 8px; padding: 12px 14px; }
+  .stat-card p.label { font-size: 12px; color: #777; margin: 0 0 4px; }
+  .stat-card p.value { font-size: 14px; font-weight: 600; margin: 0; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: #555; margin-bottom: 6px; flex-wrap: wrap; }
+  .legend span.swatch { display: inline-block; width: 14px; height: 3px; margin-right: 4px; vertical-align: middle; }
+  svg { width: 100%; height: auto; border: 1px solid #eee; border-radius: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Outcome variability, p-values, and confidence intervals</h1>
+<p class="sub">Same idea as the sample-size demo, but now the outcome's own noise (SD) is the variable. Watch the theoretical SE panel update instantly as you move the SD slider &mdash; before you even draw a sample.</p>
+
+<div class="controls">
+  <div class="control">
+    <label for="nSlider">Sample size (n)</label>
+    <input type="range" min="5" max="100" step="5" value="20" id="nSlider">
+    <span id="nOut">20</span>
+  </div>
+  <div class="control">
+    <label for="muSlider">True effect (mu)</label>
+    <input type="range" min="-2" max="6" step="1" value="3" id="muSlider">
+    <span id="muOut">3</span>
+  </div>
+  <div class="control">
+    <label for="sdSlider">Outcome SD (sigma)</label>
+    <input type="range" min="1" max="10" step="1" value="5" id="sdSlider">
+    <span id="sdOut">5</span>
+  </div>
+  <button id="drawBtn">Draw a sample</button>
+  <button id="resetBtn">Reset</button>
+</div>
+
+<div class="theory">
+  <span><b>SE = sigma / sqrt(n) = </b><span id="seOut">1.12</span></span>
+  <span><b>Expected 95% half-width (1.96 x SE) = </b><span id="halfWidthOut">2.19</span></span>
+</div>
+
+<div class="stats">
+  <div class="stat-card">
+    <p class="label">Latest sample</p>
+    <p class="value" id="latestOut">Draw a sample to begin</p>
+  </div>
+  <div class="stat-card">
+    <p class="label">CI coverage (target ~95%)</p>
+    <p class="value" id="coverageOut">&mdash;</p>
+  </div>
+  <div class="stat-card">
+    <p class="label">Significant at p&lt;0.05</p>
+    <p class="value" id="sigOut">&mdash;</p>
+  </div>
+</div>
+
+<div class="legend">
+  <span><span class="swatch" style="background:#1D9E75;"></span>excludes 0 (p&lt;0.05)</span>
+  <span><span class="swatch" style="background:#888780;"></span>includes 0 (n.s.)</span>
+  <span><span class="swatch" style="border-top:1px dashed #D85A30; background:none;"></span>true effect</span>
+  <span><span class="swatch" style="border-top:1px solid #333; background:none;"></span>null (0)</span>
+</div>
+
+<svg id="chart" viewBox="0 0 640 290">
+  <line x1="60" y1="10" x2="60" y2="250" stroke="#ddd" stroke-width="1"></line>
+  <line x1="60" y1="250" x2="610" y2="250" stroke="#ddd" stroke-width="1"></line>
+  <g id="ticks"></g>
+  <line id="nullLine" x1="343" y1="10" x2="343" y2="250" stroke="#333" stroke-width="1"></line>
+  <line id="trueLine" x1="343" y1="10" x2="343" y2="250" stroke="#D85A30" stroke-width="1" stroke-dasharray="4,3"></line>
+  <g id="rowsGroup"></g>
+</svg>
+
+<script>
+(function(){
+  var xMin=-18, xMax=18, pxMin=60, pxMax=610;
+  function scaleX(v){
+    var x = pxMin + (v - xMin) / (xMax - xMin) * (pxMax - pxMin);
+    return Math.max(pxMin, Math.min(pxMax, x));
+  }
+  var ticksG = document.getElementById('ticks');
+  [-18,-9,0,9,18].forEach(function(t){
+    var x = scaleX(t);
+    var tick = document.createElementNS('http://www.w3.org/2000/svg','line');
+    tick.setAttribute('x1', x); tick.setAttribute('x2', x);
+    tick.setAttribute('y1', 250); tick.setAttribute('y2', 255);
+    tick.setAttribute('stroke', '#999'); tick.setAttribute('stroke-width', 1);
+    ticksG.appendChild(tick);
+    var label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x', x); label.setAttribute('y', 268);
+    label.setAttribute('text-anchor','middle');
+    label.setAttribute('font-size','11px');
+    label.setAttribute('fill','#999');
+    label.textContent = t;
+    ticksG.appendChild(label);
+  });
+
+  function erf(x){
+    var sign = x<0 ? -1 : 1; x=Math.abs(x);
+    var a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+    var t=1/(1+p*x);
+    var y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+    return sign*y;
+  }
+  function normCdf(x){ return 0.5*(1+erf(x/Math.sqrt(2))); }
+  function randNormal(mean, sd){
+    var u=1-Math.random(), v=Math.random();
+    var z=Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+    return mean + sd*z;
+  }
+
+  var nSlider=document.getElementById('nSlider'), muSlider=document.getElementById('muSlider'), sdSlider=document.getElementById('sdSlider');
+  var nOut=document.getElementById('nOut'), muOut=document.getElementById('muOut'), sdOut=document.getElementById('sdOut');
+  var seOut=document.getElementById('seOut'), halfWidthOut=document.getElementById('halfWidthOut');
+  var trueLine=document.getElementById('trueLine'), nullLine=document.getElementById('nullLine');
+  var rowsGroup=document.getElementById('rowsGroup');
+  var latestOut=document.getElementById('latestOut'), coverageOut=document.getElementById('coverageOut'), sigOut=document.getElementById('sigOut');
+
+  var rows=[], totalDraws=0, coverageCount=0, sigCount=0;
+  var maxRows=10, rowHeight=22, topPad=10;
+
+  function updateStaticLines(){
+    var mu = parseFloat(muSlider.value);
+    var x = scaleX(mu);
+    trueLine.setAttribute('x1', x); trueLine.setAttribute('x2', x);
+    var x0 = scaleX(0);
+    nullLine.setAttribute('x1', x0); nullLine.setAttribute('x2', x0);
+  }
+
+  function updateTheory(){
+    var n = parseInt(nSlider.value, 10);
+    var sd = parseFloat(sdSlider.value);
+    var se = sd / Math.sqrt(n);
+    seOut.textContent = se.toFixed(2);
+    halfWidthOut.textContent = (1.96*se).toFixed(2);
+  }
+
+  function redrawRows(){
+    rowsGroup.innerHTML='';
+    rows.forEach(function(r, i){
+      var y = topPad + i*rowHeight + rowHeight/2;
+      var color = r.sig ? '#1D9E75' : '#888780';
+      var line = document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1', scaleX(r.low)); line.setAttribute('x2', scaleX(r.high));
+      line.setAttribute('y1', y); line.setAttribute('y2', y);
+      line.setAttribute('stroke', color); line.setAttribute('stroke-width', 3);
+      rowsGroup.appendChild(line);
+      var dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
+      dot.setAttribute('cx', scaleX(r.mean)); dot.setAttribute('cy', y);
+      dot.setAttribute('r', 3); dot.setAttribute('fill', color);
+      rowsGroup.appendChild(dot);
+    });
+  }
+
+  function drawSample(){
+    var n = parseInt(nSlider.value, 10);
+    var mu = parseFloat(muSlider.value);
+    var sd = parseFloat(sdSlider.value);
+    var vals=[];
+    for(var i=0;i<n;i++){ vals.push(randNormal(mu, sd)); }
+    var mean = vals.reduce(function(a,b){return a+b;},0)/n;
+    var variance = vals.reduce(function(a,b){return a+(b-mean)*(b-mean);},0)/(n-1);
+    var sampSd = Math.sqrt(variance);
+    var se = sampSd/Math.sqrt(n);
+    var low = mean - 1.96*se, high = mean + 1.96*se;
+    var z = mean/se;
+    var p = 2*(1-normCdf(Math.abs(z)));
+    var sig = p < 0.05;
+    var covers = (mu >= low && mu <= high);
+
+    totalDraws++;
+    if(sig) sigCount++;
+    if(covers) coverageCount++;
+
+    rows.unshift({low:low, high:high, mean:mean, sig:sig});
+    if(rows.length > maxRows) rows.pop();
+    redrawRows();
+
+    latestOut.textContent = 'n=' + n + ', SD=' + sd + ', mean=' + mean.toFixed(2) + ', 95% CI [' + low.toFixed(2) + ', ' + high.toFixed(2) + '], p=' + p.toFixed(3);
+    latestOut.style.color = sig ? '#0F6E56' : '#222';
+    coverageOut.textContent = coverageCount + '/' + totalDraws + ' (' + Math.round(100*coverageCount/totalDraws) + '%)';
+    sigOut.textContent = sigCount + '/' + totalDraws + ' (' + Math.round(100*sigCount/totalDraws) + '%)';
+  }
+
+  function reset(){
+    rows=[]; totalDraws=0; coverageCount=0; sigCount=0;
+    redrawRows();
+    latestOut.textContent = 'Draw a sample to begin';
+    latestOut.style.color = '#222';
+    coverageOut.textContent = '\u2014';
+    sigOut.textContent = '\u2014';
+  }
+
+  nSlider.addEventListener('input', function(){ nOut.textContent = nSlider.value; updateTheory(); });
+  muSlider.addEventListener('input', function(){ muOut.textContent = muSlider.value; updateStaticLines(); });
+  sdSlider.addEventListener('input', function(){ sdOut.textContent = sdSlider.value; updateTheory(); });
+  document.getElementById('drawBtn').addEventListener('click', drawSample);
+  document.getElementById('resetBtn').addEventListener('click', reset);
+
+  updateStaticLines();
+  updateTheory();
+})();
+</script>
+</body>
+</html>
