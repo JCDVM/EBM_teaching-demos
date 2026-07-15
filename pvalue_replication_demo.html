@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>P-values and the probability of replication</title>
+<style>
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; color: #222; }
+  h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  p.sub { color: #666; font-size: 14px; margin-top: 0; margin-bottom: 24px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; margin-bottom: 10px; }
+  .control { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 260px; }
+  .control label { font-size: 13px; color: #555; white-space: nowrap; }
+  .control input[type=range] { flex: 1; }
+  .presets { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; }
+  button { font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  button:hover { background: #f5f5f5; }
+  button.active { background: #0F6E56; color: #fff; border-color: #0F6E56; }
+  .readout { background: #eef4fb; border-radius: 8px; padding: 14px 16px; margin-bottom: 18px; font-size: 14px; color: #222; }
+  .readout .big { font-size: 22px; font-weight: 700; color: #0F6E56; }
+  .readout .row { margin-bottom: 4px; }
+  .caveat { font-size: 12px; color: #777; margin-top: 14px; line-height: 1.5; }
+  svg { width: 100%; height: auto; border: 1px solid #eee; border-radius: 8px; }
+</style>
+</head>
+<body>
+
+<h1>P-values and the probability of replication</h1>
+<p class="sub">If you ran this exact study again &mdash; same sample size, same variability, true effect equal to what you observed &mdash; what's the chance you'd get p&lt;0.05 a second time?</p>
+
+<div class="controls">
+  <div class="control">
+    <label for="pSlider">Observed p-value</label>
+    <input type="range" id="pSlider" min="-4" max="-0.301" step="0.01" value="-1.301">
+  </div>
+</div>
+
+<div class="presets">
+  <button data-p="0.10">p = 0.10</button>
+  <button data-p="0.05">p = 0.05</button>
+  <button data-p="0.01">p = 0.01</button>
+  <button data-p="0.005">p = 0.005</button>
+  <button data-p="0.001">p = 0.001</button>
+</div>
+
+<div class="readout">
+  <div class="row">Observed p-value: <b id="pOut">0.0500</b> &nbsp;(implied z = <span id="zOut">1.96</span>)</div>
+  <div class="row">Probability an exact replication also hits p&lt;0.05: <span class="big" id="rpOut">50%</span></div>
+</div>
+
+<svg id="chart" viewBox="0 0 640 300">
+  <line x1="60" y1="10" x2="60" y2="250" stroke="#ddd" stroke-width="1"></line>
+  <line x1="60" y1="250" x2="610" y2="250" stroke="#ddd" stroke-width="1"></line>
+  <g id="ygrid"></g>
+  <g id="xticks"></g>
+  <path id="curve" fill="none" stroke="#1D9E75" stroke-width="2.5"></path>
+  <line id="vguide" x1="0" y1="0" x2="0" y2="250" stroke="#D85A30" stroke-width="1" stroke-dasharray="4,3"></line>
+  <line id="hguide" x1="60" y1="0" x2="0" y2="0" stroke="#D85A30" stroke-width="1" stroke-dasharray="4,3"></line>
+  <circle id="marker" r="5" fill="#D85A30"></circle>
+</svg>
+
+<p class="caveat">This is a best-case number: it assumes the original estimate is exactly right and the replication is run under identical conditions. It ignores publication bias, effect-size inflation in small or novel studies (the "winner's curse"), and any heterogeneity between the original and replication samples &mdash; all of which push real-world replication rates lower than this curve suggests.</p>
+
+<script>
+(function(){
+  function erf(x){
+    var sign = x<0 ? -1 : 1; x=Math.abs(x);
+    var a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+    var t=1/(1+p*x);
+    var y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+    return sign*y;
+  }
+  function normCdf(x){ return 0.5*(1+erf(x/Math.sqrt(2))); }
+  function qnorm(target){
+    var lo=-8, hi=8;
+    for(var i=0;i<60;i++){
+      var mid=(lo+hi)/2;
+      if(normCdf(mid) < target) lo=mid; else hi=mid;
+    }
+    return (lo+hi)/2;
+  }
+  var Z_CRIT = qnorm(0.975);
+
+  function replicationProb(p){
+    var z1 = qnorm(1 - p/2);
+    return normCdf(z1 - Z_CRIT) + normCdf(-(z1 + Z_CRIT));
+  }
+
+  var logMin=-4, logMax=-0.301, pxMin=60, pxMax=610, pyTop=10, pyBottom=250;
+  function scaleXlog(p){
+    var lp = Math.log10(p);
+    var x = pxMin + (lp - logMin)/(logMax - logMin) * (pxMax - pxMin);
+    return Math.max(pxMin, Math.min(pxMax, x));
+  }
+  function scaleY(rp){
+    return pyBottom - rp*(pyBottom - pyTop);
+  }
+
+  var ygrid = document.getElementById('ygrid');
+  [0,0.25,0.5,0.75,1].forEach(function(v){
+    var y = scaleY(v);
+    var line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', 60); line.setAttribute('x2', 610);
+    line.setAttribute('y1', y); line.setAttribute('y2', y);
+    line.setAttribute('stroke', '#f0f0ee'); line.setAttribute('stroke-width', 1);
+    ygrid.appendChild(line);
+    var label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x', 50); label.setAttribute('y', y+4);
+    label.setAttribute('text-anchor','end');
+    label.setAttribute('font-size','11px');
+    label.setAttribute('fill','#999');
+    label.textContent = Math.round(v*100) + '%';
+    ygrid.appendChild(label);
+  });
+
+  var xticksG = document.getElementById('xticks');
+  [0.001,0.01,0.05,0.1,0.5].forEach(function(p){
+    var x = scaleXlog(p);
+    var tick = document.createElementNS('http://www.w3.org/2000/svg','line');
+    tick.setAttribute('x1', x); tick.setAttribute('x2', x);
+    tick.setAttribute('y1', 250); tick.setAttribute('y2', 255);
+    tick.setAttribute('stroke', '#999'); tick.setAttribute('stroke-width', 1);
+    xticksG.appendChild(tick);
+    var label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x', x); label.setAttribute('y', 268);
+    label.setAttribute('text-anchor','middle');
+    label.setAttribute('font-size','11px');
+    label.setAttribute('fill','#999');
+    label.textContent = p;
+    xticksG.appendChild(label);
+  });
+
+  var curvePath = document.getElementById('curve');
+  var pts = [];
+  var steps = 200;
+  for(var i=0;i<=steps;i++){
+    var lp = logMin + (logMax-logMin)*i/steps;
+    var p = Math.pow(10, lp);
+    var rp = replicationProb(p);
+    pts.push(scaleXlog(p) + ',' + scaleY(rp));
+  }
+  curvePath.setAttribute('d', 'M' + pts.join(' L'));
+
+  var pSlider = document.getElementById('pSlider');
+  var pOut = document.getElementById('pOut'), zOut = document.getElementById('zOut'), rpOut = document.getElementById('rpOut');
+  var vguide = document.getElementById('vguide'), hguide = document.getElementById('hguide'), marker = document.getElementById('marker');
+  var presetBtns = document.querySelectorAll('.presets button');
+
+  function formatP(p){
+    if(p < 0.001) return p.toExponential(1);
+    return p.toFixed(4);
+  }
+
+  function update(){
+    var lp = parseFloat(pSlider.value);
+    var p = Math.pow(10, lp);
+    var z1 = qnorm(1 - p/2);
+    var rp = replicationProb(p);
+
+    var x = scaleXlog(p), y = scaleY(rp);
+    vguide.setAttribute('x1', x); vguide.setAttribute('x2', x); vguide.setAttribute('y2', y);
+    hguide.setAttribute('y1', y); hguide.setAttribute('y2', y); hguide.setAttribute('x2', x);
+    marker.setAttribute('cx', x); marker.setAttribute('cy', y);
+
+    pOut.textContent = formatP(p);
+    zOut.textContent = z1.toFixed(2);
+    rpOut.textContent = Math.round(rp*100) + '%';
+
+    presetBtns.forEach(function(b){
+      b.classList.toggle('active', Math.abs(parseFloat(b.dataset.p) - p) < 1e-9);
+    });
+  }
+
+  pSlider.addEventListener('input', update);
+  presetBtns.forEach(function(b){
+    b.addEventListener('click', function(){
+      pSlider.value = Math.log10(parseFloat(b.dataset.p));
+      update();
+    });
+  });
+
+  update();
+})();
+</script>
+</body>
+</html>
